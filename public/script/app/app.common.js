@@ -27,7 +27,7 @@ $(document).on('click', '.call-popup', function (e) {
 
     const popupHeight = isEmpty($(this).data('height')) ? 700 : $(this).data('height');
     const popupWidth = isEmpty($(this).data('width')) ? 500 : $(this).data('width');
-    const popName = isEmpty($(this).data('popup_name')) ? 'popup' : $(this).data('popup_name');
+    const popName = isEmpty($(this).data('name')) ? 'popup' : $(this).data('name');
     const popupY = (window.screen.height / 2) - (popupHeight / 2);
     const popupX = (window.screen.width / 2) - (popupWidth / 2);
 
@@ -99,9 +99,8 @@ const callDatePicker = () => {
     let datepicker = {};
 
     $('input:text[datepicker]').each(function (k, v) {
-        datepicker[$(v).attr('id')] = v;
-
-        $(v).flatpickr({
+        datepicker[$(v).attr('id')] = $(v).flatpickr({
+            locale: "ko", // 한국어 설정
             enableTime : false,
             enableSeconds:false,
             altFormat: 'Y-m-d',
@@ -116,9 +115,8 @@ const callDateTimePicker = () => {
     let datetimepicker = {};
 
     $('input:text[datetimepicker]').each(function (k, v) {
-        datetimepicker[$(v).attr('id')] = v;
-
-        $(v).flatpickr({
+        datetimepicker[$(v).attr('id')] = $(v).flatpickr({
+            locale: "ko", // 한국어 설정
             time_24hr: true,
             enableTime : true,
             enableSeconds:true,
@@ -173,21 +171,44 @@ const encryptAction = (data) => {
 }
 
 const encryptData = (obj) => {
+    let newObj = {};
+
     $.each(obj, function (key, value) {
-        obj[key] = encryptAction(value);
+        newObj[encryptAction(key)] = encryptAction(value);
     });
 
-    return obj;
+    return newObj;
 }
 
 const encryptMultiData = (obj) => {
-    const formDataJson = new FormData();
+    let encryptedKey;
+    let encryptedKeyArray = [];
+    const multiFormData = new FormData();
 
     obj.forEach((value, key) => {
-        formDataJson.append(key, encryptAction(value));
+        // 배열 키인지 확인
+        if (key.endsWith('[]')) {
+            const baseKey = key.slice(0, -2); // '[]' 제거
+
+            if (encryptedKeyArray.indexOf(baseKey) == -1) {
+                encryptedKey = encryptAction(baseKey) + '[]'; // 암호화 후 '[]' 붙이기
+                encryptedKeyArray.push(baseKey);
+
+                obj.getAll(key).forEach((val, index)  => {
+                    multiFormData.append(encryptedKey, encryptAction(val));
+                });
+            }
+        } else {
+            // 파일일 경우 키를 암호화하지 않고 그대로 FormData에 추가
+            if (value instanceof Blob || value instanceof File) {
+                multiFormData.append(key, encryptAction(value));
+            } else {
+                multiFormData.append(encryptAction(key), encryptAction(value));
+            }
+        }
     });
 
-    return formDataJson;
+    return multiFormData;
 }
 
 // ajax
@@ -277,6 +298,10 @@ const ajaxSuccessData = (obj) => {
 
     if (obj.alert) {
         actionAlert(obj.alert);
+    }
+
+    if (obj.toast) {
+        actionToast(obj.toast);
     }
 
     if (obj.winClose) {
@@ -462,6 +487,41 @@ const prependHtml = (obj) => {
     });
 }
 
+// opener html
+const openerAddHtml = (obj) => {
+    $.each(obj, function (key, data) {
+        $(window.opener.document).find(data.selector).html(data.html);
+    });
+}
+
+// opener before html
+const openerBeforeHtml = (obj) => {
+    $.each(obj, function (key, data) {
+        $(window.opener.document).find(data.selector).before(data.html);
+    });
+}
+
+// opener after html
+const openerAfterHtml = (obj) => {
+    $.each(obj, function (key, data) {
+        $(window.opener.document).find(data.selector).after(data.html);
+    });
+}
+
+// opener append html
+const openerAppendHtml = (obj) => {
+    $.each(obj, function (key, data) {
+        $(window.opener.document).find(data.selector).append(data.html);
+    });
+}
+
+// opener prepend html
+const openerPrependHtml = (obj) => {
+    $.each(obj, function (key, data) {
+        $(window.opener.document).find(data.selector).prepend(data.html);
+    });
+}
+
 // add css
 const addCss = (obj) => {
     $.each(obj, function (key, data) {
@@ -595,6 +655,24 @@ const actionAlert = (obj) => {
     }
 }
 
+// toast
+const actionToast = (obj) => {
+    $.toast({
+        heading: '',
+        text: obj.msg,
+        icon: '',
+        position: 'mid-center',
+        stack: false,
+        hideAfter: 2000, // 3초 후 사라짐
+    });;
+
+    if (obj.case) {
+        delete obj.case;
+        delete obj.msg;
+        ajaxSuccessData(obj);
+    }
+}
+
 // file input check
 const fileCheck = (_this, inputTarget = null) => {
     // plupload 체크 제외
@@ -663,7 +741,7 @@ const fileCheck = (_this, inputTarget = null) => {
 
 const fileDelCheck = (delTarget) => {
     if (delTarget.length > 0) {
-        alert('Please delete the file and register it.');
+        alert('첨부파일 삭제후 업로드 해주세요.');
         return false;
     }
 
@@ -716,6 +794,15 @@ const newFormData = (target) => {
     formData.append('case', targetData.case);
 
     return formData;
+}
+
+// 다음 우편번호 검색
+const callPostCode = (callback) => {
+    new daum.Postcode({
+        oncomplete: function (data) {
+            callback(data);
+        }
+    }).open();
 }
 
 // mobile check
@@ -781,14 +868,42 @@ const isMaxByte = (str, size) => {
 
 // Refresh captcha
 const refreshCaptcha = () => {
-    callbackAjax('/common/captcha-make', {}, function (data, error) {
-        if (data) {
+    $.ajax({
+        type: "POST",
+        url: '/common/captcha-make',
+        data: {},
+        success: function (data) {
             $('#captcha').val('');
             $('#captcha_img').attr('src', data);
-        } else {
+        },
+        error: function (error) {
             ajaxErrorData(error)
         }
     });
+}
+
+
+// captcha check
+const captchaCheck = () => {
+    if ($('input[name=captcha]').length > 0 && isEmpty($('input[name=captcha]').val())) {
+        alert('인증 문자를 입력해주세요.');
+        $('input[name=captcha]').focus();
+        return false;
+    }
+
+    return true;
+}
+
+// 아이디 REGX
+const uidREGEX = (uid) => {
+    const uidRegex = /^(?=.*[a-zA-Z])(?=.*[\d\W])[a-zA-Z\d\W]{4,14}$/;
+    return uidRegex.test(uid);
+}
+
+// 비밀번호 REGX
+const pwdREGEX = (pwd) => {
+    const pwdRegex = /^(?=.*[a-z])(?=.*[\d\W])[a-z\d\W]{4,14}$/;
+    return pwdRegex.test(pwd);
 }
 
 // phone only number Auto Hyphen

@@ -56,6 +56,9 @@ tinymce.init({
         'bold italic backcolor | alignleft aligncenter ' +
         'alignright alignjustify | bullist numlist outdent indent | ' +
         'removeformat | help',
+
+    paste_webkit_styles: 'all',  // 웹킷 스타일 유지
+
     relative_urls: false,
     remove_script_host: false,
     convert_urls: true,

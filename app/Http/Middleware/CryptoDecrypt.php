@@ -20,7 +20,10 @@ class CryptoDecrypt
         if ($request->ajax()) {
             // 데이터를 복호화
             foreach ($request->all() as $key => $val) {
-                $request[$key] = $this->cryptoDecrypt($val);
+                if (!$request->hasFile($key)) {
+                    $request[$this->cryptoDecrypt($key)] = $this->cryptoDecrypt($val);
+                    unset($request[$key]);
+                }
             }
         }
 
